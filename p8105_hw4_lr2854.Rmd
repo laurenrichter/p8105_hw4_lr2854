@@ -1,0 +1,124 @@
+---
+title: "Trends in NYC Restaurant Inspections in 2017"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(p8105.datasets)
+library(plotly)
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Average Score by Number of Violations Across Boroughs
+
+Higher scores indicate worse performance
+
+```{r violations_v_score}
+
+# import data
+data(rest_inspec)
+
+# select and tidy data
+# will look at a few factors related to score, number of violations, and grade
+# Will just look at 2017 for now
+
+rest_inspec = 
+  rest_inspec %>% 
+  mutate(inspection_year = format(inspection_date, format = "%Y"),
+         grade = factor(grade, levels=c("A", "B", "C")),
+         boro = str_to_title(boro)) %>%
+  select(camis, dba, boro, zipcode, inspection_year, inspection_date, score, grade, violation_code) %>%
+  group_by(boro) %>%
+  arrange(dba, inspection_date, .by_group = TRUE) %>%
+  filter(
+    !is.na(grade),
+    grade != "P",
+    grade != "Z",
+    !is.na(score),
+    boro != "Missing",
+    inspection_year == 2017)
+
+# Plot the average score based on the number of violations for each borough
+
+rest_scores = rest_inspec %>%
+  select(boro, camis, dba, inspection_year, score, grade) %>%
+  group_by(boro) %>%
+  arrange(dba, .by_group = TRUE) %>%
+  group_by(camis) %>%
+  summarize(boro, dba, score, grade, n_violations = n()) %>%
+  distinct() %>%
+  ungroup() %>%
+  select(boro, n_violations, score) %>%
+  group_by(boro, n_violations) %>%
+  summarize(boro, n_violations, avg_score = mean(score), max_score = max(score), min_score = min(score)) %>%
+  distinct()
+ 
+# create plot_ly plot
+
+rest_scores %>%
+  mutate(text_label = str_c("Borough: ", boro, "\nNo. of Violations: ", n_violations, "\nAverage Score: ", avg_score)) %>% 
+  plot_ly(
+    x = ~n_violations, y = ~avg_score, type = "scatter", mode = "line", 
+    color = ~boro, text = ~text_label, colors = "viridis") %>%
+    layout(title = "Average Score by Number of Violations",
+         xaxis = list(title = "<b>Number of Violations</b>"),
+         yaxis = list(title = "<b>Average Score</b>"), 
+         legend = list(title=list(text="<b>Borough</b>")))
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Average Score of All Restaurants Across Boroughs
+
+```{r avg_score_by_grade}
+
+grade_a= rest_inspec %>%
+  select(boro, camis, dba, score, grade) %>%
+  group_by(boro) %>%
+  distinct()
+
+grade_a %>% 
+  plot_ly(x = ~boro, y = ~score, color = ~grade, type = "box", colors = "viridis") %>%
+  layout(boxmode = "group", 
+         title ="Average Score of All Restaurants", 
+         xaxis = list(title = "<b>Borough</b>"), 
+         yaxis = list(title = "<b>Score</b>"),
+         legend = list(title=list(text="<b>Grade</b>")))
+```
+
+### Number of Inspected Starbucks and Dunkin Donuts
+
+```{r}
+coffee_competition = c("STARBUCKS","DUNKIN DONUTS")
+
+starbucks = rest_inspec %>%
+  select(boro, camis, dba) %>%
+  filter(str_detect(dba, coffee_competition)) %>%
+  mutate(sb_or_dd = ifelse(str_detect(dba, "STARBUCKS"), "Starbucks", "Dunkin Donuts")) %>%
+  group_by(camis, sb_or_dd, boro) %>%
+  summarize(sb_or_dd, boro) %>%
+  distinct() %>%
+  select(sb_or_dd, boro) %>%
+  group_by(boro, sb_or_dd) %>%
+  summarize(boro, sb_or_dd, n_restaurants = n()) %>%
+  distinct() %>%
+  pivot_wider(names_from = sb_or_dd, values_from = n_restaurants)
+
+starbucks %>% 
+  plot_ly(x = ~boro, y = ~Starbucks, type = 'bar', name = 'Starbucks', marker = list(color = "green")) %>%
+  add_trace(y = ~`Dunkin Donuts`, name = "Dunkin Donuts", marker = list(color = "orange")) %>%
+  layout(title = "# of Inspected Starbucks and Dunkin Donuts",
+         xaxis = list(title = "<b>Borough</b>"),
+         yaxis = list(title = "<b>Count</b>"), 
+         legend = list(title=list(text="<b>Name</b>")),
+         barmode = "group")
+```
